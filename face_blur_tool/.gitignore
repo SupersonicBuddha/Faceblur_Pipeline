@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# GCP credentials — NEVER commit these
+*.json
+!sample_data/*.json
+service-account*.json
+*-credentials.json
+
+# Temp video files
+/tmp/
+*.mp4
+*.mov
+!sample_data/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# insightface model cache
+~/.insightface/

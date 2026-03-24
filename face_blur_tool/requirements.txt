@@ -1,0 +1,24 @@
+# ── Core video I/O ──────────────────────────────────────────────────────────
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
+
+# ── GCS ──────────────────────────────────────────────────────────────────────
+google-cloud-storage>=2.10.0
+
+# ── Tracking solver ──────────────────────────────────────────────────────────
+scipy>=1.11.0
+
+# ── Face detection: RetinaFace (primary) ─────────────────────────────────────
+# insightface bundles RetinaFace models via buffalo_sc / buffalo_l model packs
+insightface>=0.7.3
+onnxruntime>=1.16.0         # CPU; swap for onnxruntime-gpu on CUDA machines
+
+# ── Face detection: MediaPipe (fallback) ─────────────────────────────────────
+mediapipe>=0.10.0
+
+# ── Testing ────────────────────────────────────────────────────────────────
+pytest>=7.4.0
+pytest-mock>=3.11.0
+
+# ── Optional: better logging in notebooks ────────────────────────────────────
+# tqdm>=4.66.0

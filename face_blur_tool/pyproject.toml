@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "face_blur_tool"
+version = "1.0.0"
+description = "Cloud-based batch face-blurring pipeline for videos stored in GCS"
+requires-python = ">=3.10"
+dependencies = [
+    "opencv-python-headless>=4.8.0",
+    "numpy>=1.24.0",
+    "google-cloud-storage>=2.10.0",
+    "scipy>=1.11.0",
+    "insightface>=0.7.3",
+    "onnxruntime>=1.16.0",
+    "mediapipe>=0.10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-mock>=3.11.0",
+]
+gpu = [
+    "onnxruntime-gpu>=1.16.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+markers = [
+    "integration: marks tests that require real video files or GPU (deselect with -m 'not integration')",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
