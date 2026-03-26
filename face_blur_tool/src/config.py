@@ -66,6 +66,20 @@ class FaceBlurConfig:
     # Blur strength (sigma for Gaussian; higher = stronger)
     blur_strength: float = 25.0
 
+    # ── Tiled detection ────────────────────────────────────────────────────
+    # Split each frame into overlapping tiles before detection.
+    # Greatly improves recall for small/background faces.
+    use_tiled_detection: bool = True
+
+    # Size of each square tile in pixels
+    tile_size: int = 640
+
+    # Fractional overlap between adjacent tiles [0, 1)
+    tile_overlap: float = 0.25
+
+    # IoU threshold for suppressing duplicate detections across tile boundaries
+    tile_nms_threshold: float = 0.4
+
     # ── Retry ──────────────────────────────────────────────────────────────
     retry_count: int = 1
 

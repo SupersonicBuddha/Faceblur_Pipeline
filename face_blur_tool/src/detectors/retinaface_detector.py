@@ -65,7 +65,7 @@ class RetinaFaceDetector(FaceDetector):
 
     def __init__(
         self,
-        model_name: str = "buffalo_sc",
+        model_name: str = "buffalo_l",
         confidence_threshold: float = 0.35,
         min_face_size: int = 30,
         providers: Optional[List[str]] = None,
@@ -82,7 +82,8 @@ class RetinaFaceDetector(FaceDetector):
             name=self._model_name,
             providers=self._providers,
         )
-        # det_size controls the internal resolution; 640×640 is a good trade-off
+        # det_size controls the internal resolution; 640×640 is sufficient
+        # when tiled detection is enabled (each tile is already 640px native)
         self._app.prepare(ctx_id=0, det_size=(640, 640))
         logger.info(
             f"RetinaFaceDetector loaded model={self._model_name} "

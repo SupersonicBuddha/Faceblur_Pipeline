@@ -18,6 +18,10 @@ def make_detector(config: FaceBlurConfig) -> FaceDetector:
     * ``"retinaface"``  — insightface RetinaFace (default, recommended)
     * ``"mediapipe"``   — MediaPipe Face Detection (fallback)
 
+    When ``config.use_tiled_detection`` is True the detector is wrapped in a
+    :class:`TiledDetector` that runs detection on overlapping tiles of each
+    frame, improving recall for small/background faces.
+
     Raises
     ------
     ValueError
@@ -28,20 +32,33 @@ def make_detector(config: FaceBlurConfig) -> FaceDetector:
     if dtype == "retinaface":
         from src.detectors.retinaface_detector import RetinaFaceDetector
 
-        return RetinaFaceDetector(
+        detector: FaceDetector = RetinaFaceDetector(
             confidence_threshold=config.detector_confidence_threshold,
             min_face_size=config.min_face_size,
         )
 
-    if dtype == "mediapipe":
+    elif dtype == "mediapipe":
         from src.detectors.mediapipe_detector import MediaPipeDetector
 
-        return MediaPipeDetector(
+        detector = MediaPipeDetector(
             min_detection_confidence=config.detector_confidence_threshold,
             min_face_size=config.min_face_size,
         )
 
-    raise ValueError(
-        f"Unknown detector_type {config.detector_type!r}. "
-        f"Choose 'retinaface' or 'mediapipe'."
-    )
+    else:
+        raise ValueError(
+            f"Unknown detector_type {config.detector_type!r}. "
+            f"Choose 'retinaface' or 'mediapipe'."
+        )
+
+    if config.use_tiled_detection:
+        from src.detectors.tiled_detector import TiledDetector
+
+        return TiledDetector(
+            base_detector=detector,
+            tile_size=config.tile_size,
+            overlap=config.tile_overlap,
+            nms_iou_threshold=config.tile_nms_threshold,
+        )
+
+    return detector
