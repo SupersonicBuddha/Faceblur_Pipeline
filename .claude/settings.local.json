@@ -7,7 +7,8 @@
       "Bash(pip3 install:*)",
       "Bash(/Library/Developer/CommandLineTools/usr/bin/python3 -m pytest tests/ -m \"not integration\" -v --tb=short)",
       "Bash(/Library/Developer/CommandLineTools/usr/bin/python3 -m pytest tests/ -m \"not integration\" -q)",
-      "Bash(/Library/Developer/CommandLineTools/usr/bin/python3 -m pytest tests/test_uri_edge_cases.py tests/test_manifest_edge_cases.py tests/test_interpolation_edge_cases.py tests/test_bbox_pathological.py -v --tb=short)"
+      "Bash(/Library/Developer/CommandLineTools/usr/bin/python3 -m pytest tests/test_uri_edge_cases.py tests/test_manifest_edge_cases.py tests/test_interpolation_edge_cases.py tests/test_bbox_pathological.py -v --tb=short)",
+      "Bash(python3 -c \":*)"
     ]
   }
 }
