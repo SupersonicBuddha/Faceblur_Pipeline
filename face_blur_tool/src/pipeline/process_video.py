@@ -232,8 +232,23 @@ def _run_detection_and_blur(
     logger.info("Pass 1: detection + tracking …")
     total_faces = 0
     frame_idx = -1  # guard for empty video
+    # Read actual frame dimensions from the first frame rather than relying on
+    # ffprobe metadata.  For videos with a rotation side-data tag (common in
+    # .mov files from cameras), ffprobe reports display dimensions while
+    # cv2.VideoCapture reads the raw encoded dimensions.  When these disagree,
+    # cv2.VideoWriter silently drops every frame → empty output file.
+    actual_width: int = info.width
+    actual_height: int = info.height
 
     for frame_idx, frame in iter_frames(local_input):
+        if frame_idx == 0:
+            actual_height, actual_width = frame.shape[:2]
+            if (actual_width, actual_height) != (info.width, info.height):
+                logger.warning(
+                    f"Frame dimensions {actual_width}x{actual_height} differ from "
+                    f"probe dimensions {info.width}x{info.height} — using frame "
+                    f"dimensions for VideoWriter (likely rotation metadata)."
+                )
         # Scene cut check
         if scene_detector.is_cut(frame):
             tracker.reset()
@@ -287,14 +302,24 @@ def _run_detection_and_blur(
     with FrameSink(
         output_path=local_video_only,
         fps=info.fps,
-        width=info.width,
-        height=info.height,
+        width=actual_width,
+        height=actual_height,
         codec=_INTERMEDIATE_CODEC,
     ) as sink:
         for frame_idx, frame in iter_frames(local_input):
             bboxes = per_frame_bboxes.get(frame_idx, [])
             out_frame = apply_face_blurs(frame, bboxes, config)
             sink.write(out_frame)
+
+    # Guard against cv2.VideoWriter silently producing an empty file
+    # (e.g. when a frame resize is needed but not applied).
+    output_size = os.path.getsize(local_video_only)
+    if output_size == 0:
+        raise FrameWriteError(
+            f"VideoWriter produced an empty file ({local_video_only!r}). "
+            f"Frame dimensions used: {actual_width}x{actual_height}. "
+            f"Check codec support and available disk space."
+        )
 
     logger.info("Pass 2 complete.")
     return local_video_only
