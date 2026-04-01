@@ -136,7 +136,8 @@ def process_single_video(
             detector.warmup()
 
         try:
-            local_video_only = _run_detection_and_blur(
+            runner = _run_single_pass if config.single_pass else _run_detection_and_blur
+            local_video_only = runner(
                 local_input=local_input,
                 local_video_only=local_video_only,
                 info=info,
@@ -311,17 +312,96 @@ def _run_detection_and_blur(
             out_frame = apply_face_blurs(frame, bboxes, config)
             sink.write(out_frame)
 
-    # Guard against cv2.VideoWriter silently producing an empty file
-    # (e.g. when a frame resize is needed but not applied).
-    output_size = os.path.getsize(local_video_only)
-    if output_size == 0:
-        raise FrameWriteError(
-            f"VideoWriter produced an empty file ({local_video_only!r}). "
-            f"Frame dimensions used: {actual_width}x{actual_height}. "
-            f"Check codec support and available disk space."
-        )
-
     logger.info("Pass 2 complete.")
     return local_video_only
 
 
+def _run_single_pass(
+    local_input: str,
+    local_video_only: str,
+    info: VideoInfo,
+    config,
+    detector: FaceDetector,
+    result: VideoResult,
+) -> str:
+    """
+    Combined detect → track → smooth → blur → write in a single video scan.
+
+    Reads the video once instead of twice, cutting total I/O time roughly in
+    half.  Between detection frames the tracker's linear-motion prediction
+    holds face positions; this is equivalent to two-pass interpolation when
+    ``detection_interval`` is small (≤ ~12 frames at 30 fps).
+
+    Returns the path to the written video-only (no-audio) file.
+    """
+    tracker = FaceTracker(
+        iou_threshold=config.tracker_iou_threshold,
+        persistence_frames=config.track_persistence_frames,
+    )
+    smoother = BBoxSmoother(window=config.smoothing_window)
+    scene_detector = SceneCutDetector(threshold=config.scene_cut_threshold)
+
+    total_faces = 0
+    frame_idx = -1
+    actual_width: int = info.width
+    actual_height: int = info.height
+
+    frame_iter = iter_frames(local_input)
+
+    # Peek at the first frame to get actual encoded dimensions.
+    # ffprobe and cv2.VideoCapture can disagree for rotated .mov files; using
+    # the real frame shape ensures FrameSink is configured correctly.
+    try:
+        frame_idx, first_frame = next(frame_iter)
+        actual_height, actual_width = first_frame.shape[:2]
+        if (actual_width, actual_height) != (info.width, info.height):
+            logger.warning(
+                f"Frame dimensions {actual_width}x{actual_height} differ from "
+                f"probe dimensions {info.width}x{info.height} — using frame "
+                f"dimensions for VideoWriter (likely rotation metadata)."
+            )
+    except StopIteration:
+        first_frame = None  # empty video; FrameSink.close() will raise
+
+    def _process(fidx: int, frame) -> "np.ndarray":
+        nonlocal total_faces
+        if scene_detector.is_cut(frame):
+            tracker.reset()
+            smoother.reset_all()
+
+        run_det = (fidx % config.detection_interval == 0)
+        detections = detector.detect(frame) if run_det else []
+        tracked = tracker.update(fidx, detections)
+
+        active_ids = [t.track_id for t in tracked.tracks]
+        smoother.remove_stale_tracks(active_ids)
+
+        bboxes: List[BBox] = []
+        for track in tracked.tracks:
+            sb = smoother.smooth(track.track_id, track.bbox)
+            bboxes.append(sb)
+            if run_det and track.missed_frames == 0:
+                total_faces += 1
+
+        return apply_face_blurs(frame, bboxes, config)
+
+    logger.info("Single pass: detect + blur + write …")
+    with FrameSink(
+        output_path=local_video_only,
+        fps=info.fps,
+        width=actual_width,
+        height=actual_height,
+        codec=_INTERMEDIATE_CODEC,
+    ) as sink:
+        if first_frame is not None:
+            sink.write(_process(frame_idx, first_frame))
+        for frame_idx, frame in frame_iter:
+            sink.write(_process(frame_idx, frame))
+
+    result.frames_processed = frame_idx + 1
+    result.faces_detected_total = total_faces
+    logger.info(
+        f"Single pass complete: {result.frames_processed} frames, "
+        f"{total_faces} face-frames"
+    )
+    return local_video_only

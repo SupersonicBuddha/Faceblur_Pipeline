@@ -80,6 +80,15 @@ class FaceBlurConfig:
     # IoU threshold for suppressing duplicate detections across tile boundaries
     tile_nms_threshold: float = 0.4
 
+    # ── Processing mode ────────────────────────────────────────────────────
+    # True  → detect + blur + write in a single video scan (faster; recommended).
+    #          The tracker's linear-motion prediction fills frames between
+    #          detection intervals instead of post-hoc linear interpolation.
+    #          Quality difference is imperceptible at detection_interval ≤ 12.
+    # False → classic two-pass: Pass 1 detects, Pass 2 blurs (slightly higher
+    #          bbox smoothness but reads the video twice).
+    single_pass: bool = True
+
     # ── Retry ──────────────────────────────────────────────────────────────
     retry_count: int = 1
 

@@ -1,18 +1,22 @@
 """
 Write processed frames to a temporary video file, then mux with audio.
 
-We write a raw video-only file with OpenCV VideoWriter, then use ffmpeg
-to mux the original audio track back in (if requested and available).
+We pipe raw BGR frames directly into an ffmpeg subprocess (libx264), then use
+a second ffmpeg call to mux the original audio track back in.
+
+Using ffmpeg instead of cv2.VideoWriter avoids a class of silent failures where
+VideoWriter reports isOpened()=True but writes zero frames (e.g. when the mp4v
+codec is unavailable or frame dimensions disagree with the container header due
+to rotation metadata).  libx264 is universally available on Linux/Colab and
+raises real errors on failure.
 """
 
 from __future__ import annotations
 
-import os
 import subprocess
-from contextlib import contextmanager
-from typing import Generator, Optional
+import tempfile
+from typing import Optional
 
-import cv2
 import numpy as np
 
 from src.logging_utils import get_logger
@@ -26,7 +30,7 @@ class FrameWriteError(RuntimeError):
 
 class FrameSink:
     """
-    Incremental frame sink backed by cv2.VideoWriter.
+    Incremental frame sink that pipes raw BGR frames to ffmpeg (libx264).
 
     Usage
     -----
@@ -36,6 +40,12 @@ class FrameSink:
         for frame in frames:
             sink.write(frame)
         sink.close()
+
+    Or as a context manager (recommended — guarantees close on error)::
+
+        with FrameSink(path, fps, width, height) as sink:
+            for frame in frames:
+                sink.write(frame)
     """
 
     def __init__(
@@ -44,22 +54,72 @@ class FrameSink:
         fps: float,
         width: int,
         height: int,
-        codec: str = "mp4v",
+        codec: str = "mp4v",  # kept for API compatibility; ignored (libx264 is used)
     ) -> None:
         self._path = output_path
-        fourcc = cv2.VideoWriter_fourcc(*codec)
-        self._writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-        if not self._writer.isOpened():
-            raise FrameWriteError(
-                f"cv2.VideoWriter could not open {output_path!r} "
-                f"(fps={fps}, {width}x{height}, codec={codec})"
+        self._frame_count = 0
+        # Stderr is redirected to a temp file so the pipe never blocks while
+        # we are streaming stdin frames.  We read it back on close() for error
+        # reporting.
+        self._stderr_buf: tempfile.SpooledTemporaryFile = tempfile.SpooledTemporaryFile(
+            max_size=1 << 20  # 1 MB in memory, spill to disk beyond that
+        )
+
+        cmd = [
+            "ffmpeg", "-y",
+            # ── Input: raw BGR frames from stdin ──────────────────────────
+            "-f", "rawvideo",
+            "-vcodec", "rawvideo",
+            "-s", f"{width}x{height}",
+            "-pix_fmt", "bgr24",
+            "-r", str(fps),
+            "-i", "pipe:0",
+            # ── Output: H.264 in an MP4 container ─────────────────────────
+            "-vcodec", "libx264",
+            "-preset", "fast",
+            "-crf", "18",
+            "-pix_fmt", "yuv420p",  # required for broad player compatibility
+            output_path,
+        ]
+        try:
+            self._proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=self._stderr_buf,
             )
+        except FileNotFoundError:
+            raise FrameWriteError("ffmpeg not found; install ffmpeg.")
 
     def write(self, frame: np.ndarray) -> None:
-        self._writer.write(frame)
+        try:
+            self._proc.stdin.write(frame.tobytes())
+        except BrokenPipeError:
+            # ffmpeg exited early — read stderr for the reason
+            self._stderr_buf.seek(0)
+            stderr = self._stderr_buf.read().decode("utf-8", errors="replace")
+            raise FrameWriteError(
+                f"ffmpeg pipe closed unexpectedly while writing frames: {stderr}"
+            )
+        self._frame_count += 1
 
     def close(self) -> None:
-        self._writer.release()
+        if self._proc.stdin and not self._proc.stdin.closed:
+            self._proc.stdin.close()
+        self._proc.wait()
+
+        self._stderr_buf.seek(0)
+        stderr_text = self._stderr_buf.read().decode("utf-8", errors="replace")
+        self._stderr_buf.close()
+
+        if self._proc.returncode != 0:
+            raise FrameWriteError(
+                f"ffmpeg video write failed (rc={self._proc.returncode}): {stderr_text}"
+            )
+        if self._frame_count == 0:
+            raise FrameWriteError(
+                f"FrameSink closed with no frames written to {self._path!r}"
+            )
 
     def __enter__(self) -> "FrameSink":
         return self
